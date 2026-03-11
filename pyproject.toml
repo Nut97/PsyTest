@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+  "smoke: 单账号关键链路冒烟",
+  "e2e: 批量端到端执行",
+]
