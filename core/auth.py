@@ -9,6 +9,26 @@ import requests
 from apis.auth_api import AuthApi
 from core.logger import log
 from core.settings import Settings
+from core.utils.datasets import user_label
+
+
+def _short_text(value: Any, limit: int = 120) -> str:
+    text = str(value or '').replace('\r', ' ').replace('\n', ' ').strip()
+    if not text:
+        return '-'
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 3, 0)] + '...'
+
+
+def _result_meta(payload: Any) -> tuple[str, str]:
+    if not isinstance(payload, dict):
+        return '-', '-'
+    code = payload.get('code')
+    msg = payload.get('msg') or payload.get('message')
+    code_text = str(code) if code not in (None, '') else '-'
+    msg_text = _short_text(msg)
+    return code_text, msg_text
 
 
 @dataclass
@@ -53,26 +73,56 @@ class TokenManager:
             return {'access_token': self.settings.auth_token, 'token_type': 'bearer'}
         if not account:
             return None
+        label = user_label(account)
+        username = self.username_of(account) or '-'
         key = self._cache_key(account)
         if key and not force_refresh:
             cached = self._cache.get(key)
             if cached and self._is_valid(cached):
                 return cached.login_data
 
+        log.info('[%s] REQ POST %s username=%s', label, self.settings.auth_path, username)
         response = self.api.login(account)
         if response.status_code != 200:
-            log.error('login failed: status=%s body=%s', response.status_code, response.text[:500])
+            log.error(
+                '[%s] RES POST %s -> http=%s success=False code=- msg=%s',
+                label,
+                self.settings.auth_path,
+                response.status_code,
+                _short_text(response.text),
+            )
             return None
         try:
             payload = response.json()
         except Exception:
-            log.error('login response is not valid json: %s', response.text[:500])
+            log.error(
+                '[%s] RES POST %s -> http=%s success=False code=- msg=invalid-json',
+                label,
+                self.settings.auth_path,
+                response.status_code,
+            )
             return None
+        result_code, result_msg = _result_meta(payload)
         login_data = (payload or {}).get('data') or {}
         token = str(login_data.get('access_token') or '')
         if not token:
-            log.error('login response missing access_token: %s', payload)
+            log.error(
+                '[%s] RES POST %s -> http=%s success=False code=%s msg=%s',
+                label,
+                self.settings.auth_path,
+                response.status_code,
+                result_code,
+                result_msg,
+            )
             return None
+        log.info(
+            '[%s] RES POST %s -> http=%s success=True code=%s msg=%s',
+            label,
+            self.settings.auth_path,
+            response.status_code,
+            result_code,
+            result_msg,
+        )
 
         expires_in = login_data.get('expires_in')
         expires_at = None
