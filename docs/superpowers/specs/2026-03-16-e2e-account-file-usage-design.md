@@ -8,7 +8,7 @@
 python -m pytest -c pyproject.toml tests/test_e2e_batch.py --env test --seed 41 -s
 ```
 
-需求是基于该命令增加“指定账号文件”的能力，形态类似 `--account account.json`。
+需求是基于该命令增加“指定账号文件”的能力，统一使用 `--account-file`。
 
 在项目现状中，`conftest.py` 与 `start.py` 已支持参数 `--account-file`，因此本次目标不是新增参数，而是：
 
@@ -96,7 +96,13 @@ python -m pytest -c pyproject.toml tests/test_e2e_batch.py --env test --seed 41 
 python start.py --env test --suite e2e --seed 41 --account-file data/account.json
 ```
 
-3. **路径规则**
+3. **绝对路径示例（可选）**
+
+```bash
+python -m pytest -c pyproject.toml tests/test_e2e_batch.py --env test --seed 41 --account-file D:/PsyTest2.0/data/account.json -s
+```
+
+4. **路径规则**
    - 优先使用项目根目录相对路径（如 `data/account.json`）；
    - 绝对路径可用，适用于跨目录执行或 CI 场景。
 
@@ -114,10 +120,10 @@ python start.py --env test --suite e2e --seed 41 --account-file data/account.jso
 
 本次不修改异常处理代码，仅在文档中明确预期行为：
 
-1. **账号文件路径错误/不存在**：在账号加载阶段暴露错误或导致无数据；
-2. **账号文件 JSON 格式错误**：在解析或后续流程中报错；
+1. **账号文件不存在**：`load_accounts` 返回空列表，`test_e2e_batch` 按现有逻辑 `skip`；
+2. **账号文件 JSON 格式错误**：`json.loads` 解析失败，测试报错失败；
 3. **账号列表为空**：`test_e2e_batch` 按现有逻辑 `skip`；
-4. **路径歧义问题**：通过文档强调“相对路径优先”降低误用概率。
+4. **路径歧义问题**：通过文档强调“优先使用项目根目录相对路径”，并说明绝对路径可用。
 
 ## 6. 测试与验收策略
 
