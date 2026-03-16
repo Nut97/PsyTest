@@ -718,3 +718,28 @@ Psytest 当前版本已经具备以下能力：
 ```
 如果你愿意，我下一条可以继续给你补一版**带 Mermaid 流程图的 README**，视觉上会更适合正式项目文档。
 ```
+
+五、使用Superpowers
+
+1.skills清单
+![img.png](img.png)
+
+2.设计、开发、重构新功能
+# skills工作流程
+→ brainstorming 
+
+→ writing-plans 
+
+→ using-git-worktrees 
+
+→ subagent-driven-development (或 executing-plans) 
+
+→ finishing-a-development-branch
+
+只需要使用/brainstorming 开始，后续AI就会按照工作流细化方案并执行工作流
+
+注意事项：后续工作流中，AI会采用worktree（分支开发，避免多会话同时修改文件出现错乱）的形式来完成开发工作，流程可能会拉得比较长。如果不需要，在任务执行前告诉AI：不使用worktree，在当前分支进行开发工作
+
+
+系统调试、bug查找、疑难杂症（建议使用gpt-5.3-codex 或 gpt-5.2）
+

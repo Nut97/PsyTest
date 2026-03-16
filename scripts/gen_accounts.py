@@ -10,6 +10,9 @@ import json
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Set
 
+
+#python D:\PsyTest2.0\data\gen_students.py --count 100 --out .\data\Xinya.xlsx
+
 GRADES = ["一年级","二年级","三年级","四年级","五年级","六年级","初一","初二","初三","高一","高二","高三"]
 CLASSES = [f"{i}班" for i in range(1, 7)]
 
