@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import subprocess
 
+from core.utils.answer_mode_plan import ANSWER_MODE_HELP, ANSWER_MODE_OPTION_CHOICES
+
 
 SUITE_TO_TARGET = {
     'smoke': ['tests/test_smoke_screening.py'],
@@ -40,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--account-file', default='data/account.json')
     parser.add_argument('--statuses', default='')
     parser.add_argument('--submit-path', default='')
-    parser.add_argument('--answer-mode', default='')
+    parser.add_argument('--answer-mode', choices=ANSWER_MODE_OPTION_CHOICES, default='', help=ANSWER_MODE_HELP)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--allow-empty-submit', action='store_true')
     parser.add_argument('--allure', action='store_true')

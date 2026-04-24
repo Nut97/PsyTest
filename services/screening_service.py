@@ -10,6 +10,7 @@ from core.auth import TokenManager
 from core.http import APIClient
 from core.logger import log
 from core.settings import Settings
+from core.utils.answer_mode_plan import DEFAULT_BALANCED_THRESHOLD, build_balanced_plan, resolve_batch_mode
 from core.utils.answers import build_submit_payload, summarize_paper
 from core.utils.datasets import user_label
 
@@ -240,6 +241,32 @@ class ScreeningService:
         }
         allow_empty_submit = self.settings.allow_empty_submit if allow_empty_submit is None else allow_empty_submit
         resolved_statuses = tuple(statuses or self.settings.screening_task_statuses)
+        resolved_mode = resolve_batch_mode(mode)
+        summary['resolved_mode'] = resolved_mode
+        mode_distribution_actual_accounts = {'random': 0, 'low': 0, 'middle': 0, 'high': 0}
+        actual_accounts_total = 0
+
+        balanced_plan = None
+        assignment_by_index: dict[int, str] = {}
+        if resolved_mode == 'balanced':
+            balanced_plan = build_balanced_plan(total_accounts=len(accounts), seed=seed, threshold=DEFAULT_BALANCED_THRESHOLD)
+            assignment_by_index = balanced_plan.assignment_by_index
+            summary['balanced_plan'] = {
+                'enabled': balanced_plan.enabled,
+                'seed_used': balanced_plan.seed_used,
+                'fallback_reason': balanced_plan.fallback_reason,
+                'mode_distribution': balanced_plan.mode_distribution,
+                'mode_distribution_population': 'input_accounts',
+                'mode_distribution_population_total': balanced_plan.total_accounts,
+                'mode_distribution_actual_accounts': mode_distribution_actual_accounts,
+                'mode_distribution_actual_accounts_population': 'accounts_with_tasks',
+                'mode_distribution_actual_accounts_total': actual_accounts_total,
+                'threshold': balanced_plan.threshold,
+                'total_accounts': balanced_plan.total_accounts,
+                'random_group_size': balanced_plan.random_group_size,
+                'balanced_group_size': balanced_plan.balanced_group_size,
+            }
+
         for index, account in enumerate(accounts):
             self.set_account(account)
             label = user_label(account)
@@ -255,11 +282,18 @@ class ScreeningService:
                 summary['no_task_accounts'].append(label)
                 log.info('[%s] user-summary login=True tasks=0 submitted=0 failed=0', label)
                 continue
+            # 按账号口径统计：仅对有可提交任务的账号按分配 mode 计一次。
+            assigned_mode = assignment_by_index[index] if resolved_mode == 'balanced' else resolved_mode
+            if assigned_mode in mode_distribution_actual_accounts:
+                mode_distribution_actual_accounts[assigned_mode] += 1
+                actual_accounts_total += 1
+                if 'balanced_plan' in summary:
+                    summary['balanced_plan']['mode_distribution_actual_accounts_total'] = actual_accounts_total
             user_submitted = 0
             user_failed = 0
             for task_index, task in enumerate(tasks):
                 task_seed = None if seed is None else seed + index * 1000 + task_index
-                result = self.submit_task(task, seed=task_seed, mode=mode)
+                result = self.submit_task(task, seed=task_seed, mode=assigned_mode)
                 summary['results'].append({'account': label, **result})
                 if result['success']:
                     summary['submitted'] += 1

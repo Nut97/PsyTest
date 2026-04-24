@@ -513,6 +513,20 @@ python -m pytest -c pyproject.toml tests/test_smoke_screening.py --env test --se
 python -m pytest -c pyproject.toml tests/test_e2e_batch.py --env test --seed 42 -s
 ```
 
+### 11.3 `balanced` 答题模式规则
+
+- 仅批量（e2e/run_batch）未指定 `--answer-mode` 时默认 `balanced`
+- `smoke` 与其他非批量场景不会默认切到 `balanced`
+- `N<=10` 全 `random`
+- `N>10` 半 `random` + 半 `low/middle/high` 等比（奇数 `random` 多 1）
+- `low` / `middle` / `high` 只在非 `random` 的那一半里尽量等比分配
+
+示例：
+
+- `N=10` -> 10 个 `random`
+- `N=11` -> 6 个 `random`，其余 5 个按 `low` / `middle` / `high` 近似等比分配
+- `N=12` -> 6 个 `random` + 2 个 `low` + 2 个 `middle` + 2 个 `high`
+
 ------
 
 ## 12. 推荐验证顺序
