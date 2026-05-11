@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections import Counter
 from typing import Any
 
 from core.utils.datasets import user_label
@@ -182,3 +183,135 @@ def test_run_smoke_with_none_mode_keeps_submit_mode_none(screening_service_facto
 
     assert result['success'] is True
     assert [call['mode'] for call in submitted_calls] == [None]
+
+
+def test_run_batch_balanced_distribution_uses_accounts_with_tasks_population(screening_service_factory, monkeypatch):
+    service = screening_service_factory()
+    accounts = _build_accounts(20)
+    submitted_calls: list[dict[str, Any]] = []
+
+    active_indices = {0, 2, 3, 6, 7, 11, 13, 14, 15, 17, 18, 19}
+
+    def fake_ensure_login(account=None):
+        return f"token-{user_label(account)}"
+
+    def fake_list_task_refs(*, statuses=None):
+        account = service.client.account
+        label = user_label(account)
+        index = int(str(label).split('-')[-1])
+        if index not in active_indices:
+            return []
+        return [TaskRef(paper_task_id=f'paper-{label}', task_user_id=f'task-user-{label}', raw={'label': label})]
+
+    def fake_submit_task(task, *, seed=None, mode=None):
+        account = service.client.account
+        label = user_label(account)
+        submitted_calls.append(
+            {
+                'account': label,
+                'paper_task_id': task.paper_task_id,
+                'task_user_id': task.task_user_id,
+                'seed': seed,
+                'mode': mode,
+            }
+        )
+        return {
+            'paper_task_id': task.paper_task_id,
+            'task_id': task.paper_task_id,
+            'task_user_id': task.task_user_id,
+            'paper_summary': {'subjects': 1},
+            'request_payload': {'mode': mode, 'seed': seed},
+            'response_payload': {'code': 200},
+            'status_code': 200,
+            'business_code': 200,
+            'business_message': 'ok',
+            'success': True,
+        }
+
+    monkeypatch.setattr(service, 'ensure_login', fake_ensure_login)
+    monkeypatch.setattr(service, 'list_task_refs', fake_list_task_refs)
+    monkeypatch.setattr(service, 'submit_task', fake_submit_task)
+
+    summary = service.run_batch(accounts, seed=7, mode=None)
+
+    _assert_summary_keys(summary, 'resolved_mode', 'balanced_plan')
+    assert summary['resolved_mode'] == 'balanced'
+    assert summary['balanced_plan']['total_accounts'] == 12
+    assert summary['balanced_plan']['mode_distribution_population'] == 'accounts_with_tasks'
+    assert summary['balanced_plan']['mode_distribution'] == {'random': 6, 'low': 2, 'middle': 2, 'high': 2}
+    assert summary['risk_distribution_actual_accounts'] == {'low': 2, 'middle': 2, 'high': 2}
+    assert summary['risk_distribution_actual_accounts_total'] == 6
+    assert summary['risk_distribution_actual_accounts_ratio'] == {'low': 0.3333, 'middle': 0.3333, 'high': 0.3333}
+    assert summary['mode_distribution_actual_accounts_ratio'] == {
+        'random': 0.5,
+        'low': 0.1667,
+        'middle': 0.1667,
+        'high': 0.1667,
+    }
+    assert summary['balanced_plan']['risk_distribution_actual_accounts'] == {'low': 2, 'middle': 2, 'high': 2}
+    assert summary['balanced_plan']['risk_distribution_actual_accounts_total'] == 6
+    assert summary['balanced_plan']['risk_distribution_actual_accounts_ratio'] == {
+        'low': 0.3333,
+        'middle': 0.3333,
+        'high': 0.3333,
+    }
+    assert len(submitted_calls) == 12
+    assert Counter(call['mode'] for call in submitted_calls) == {'random': 6, 'low': 2, 'middle': 2, 'high': 2}
+
+
+def test_run_batch_balanced_threshold_is_based_on_accounts_with_tasks(screening_service_factory, monkeypatch):
+    service = screening_service_factory()
+    accounts = _build_accounts(20)
+    submitted_calls: list[dict[str, Any]] = []
+
+    active_indices = {0, 1, 2, 3, 4, 5, 6, 7}
+
+    def fake_ensure_login(account=None):
+        return f"token-{user_label(account)}"
+
+    def fake_list_task_refs(*, statuses=None):
+        account = service.client.account
+        label = user_label(account)
+        index = int(str(label).split('-')[-1])
+        if index not in active_indices:
+            return []
+        return [TaskRef(paper_task_id=f'paper-{label}', task_user_id=f'task-user-{label}', raw={'label': label})]
+
+    def fake_submit_task(task, *, seed=None, mode=None):
+        account = service.client.account
+        label = user_label(account)
+        submitted_calls.append(
+            {
+                'account': label,
+                'paper_task_id': task.paper_task_id,
+                'task_user_id': task.task_user_id,
+                'seed': seed,
+                'mode': mode,
+            }
+        )
+        return {
+            'paper_task_id': task.paper_task_id,
+            'task_id': task.paper_task_id,
+            'task_user_id': task.task_user_id,
+            'paper_summary': {'subjects': 1},
+            'request_payload': {'mode': mode, 'seed': seed},
+            'response_payload': {'code': 200},
+            'status_code': 200,
+            'business_code': 200,
+            'business_message': 'ok',
+            'success': True,
+        }
+
+    monkeypatch.setattr(service, 'ensure_login', fake_ensure_login)
+    monkeypatch.setattr(service, 'list_task_refs', fake_list_task_refs)
+    monkeypatch.setattr(service, 'submit_task', fake_submit_task)
+
+    summary = service.run_batch(accounts, seed=7, mode=None)
+
+    _assert_summary_keys(summary, 'resolved_mode', 'balanced_plan')
+    assert summary['resolved_mode'] == 'balanced'
+    assert summary['balanced_plan']['total_accounts'] == 8
+    assert summary['balanced_plan']['fallback_reason'] == 'insufficient_accounts'
+    assert summary['balanced_plan']['mode_distribution'] == {'random': 8, 'low': 0, 'middle': 0, 'high': 0}
+    assert len(submitted_calls) == 8
+    assert {call['mode'] for call in submitted_calls} == {'random'}

@@ -32,6 +32,12 @@ def _response_meta(payload: Any) -> tuple[Any | None, str]:
     return code, _short_text(message)
 
 
+def _distribution_ratio(distribution: dict[str, int], total: int, *, digits: int = 4) -> dict[str, float]:
+    if total <= 0:
+        return {key: 0.0 for key in distribution}
+    return {key: round(value / total, digits) for key, value in distribution.items()}
+
+
 RECENT_TIME_FIELDS = (
     'updatedTime',
     'updateTime',
@@ -246,26 +252,7 @@ class ScreeningService:
         mode_distribution_actual_accounts = {'random': 0, 'low': 0, 'middle': 0, 'high': 0}
         actual_accounts_total = 0
 
-        balanced_plan = None
-        assignment_by_index: dict[int, str] = {}
-        if resolved_mode == 'balanced':
-            balanced_plan = build_balanced_plan(total_accounts=len(accounts), seed=seed, threshold=DEFAULT_BALANCED_THRESHOLD)
-            assignment_by_index = balanced_plan.assignment_by_index
-            summary['balanced_plan'] = {
-                'enabled': balanced_plan.enabled,
-                'seed_used': balanced_plan.seed_used,
-                'fallback_reason': balanced_plan.fallback_reason,
-                'mode_distribution': balanced_plan.mode_distribution,
-                'mode_distribution_population': 'input_accounts',
-                'mode_distribution_population_total': balanced_plan.total_accounts,
-                'mode_distribution_actual_accounts': mode_distribution_actual_accounts,
-                'mode_distribution_actual_accounts_population': 'accounts_with_tasks',
-                'mode_distribution_actual_accounts_total': actual_accounts_total,
-                'threshold': balanced_plan.threshold,
-                'total_accounts': balanced_plan.total_accounts,
-                'random_group_size': balanced_plan.random_group_size,
-                'balanced_group_size': balanced_plan.balanced_group_size,
-            }
+        executable_accounts: list[tuple[int, dict[str, Any], str, list[TaskRef]]] = []
 
         for index, account in enumerate(accounts):
             self.set_account(account)
@@ -282,8 +269,38 @@ class ScreeningService:
                 summary['no_task_accounts'].append(label)
                 log.info('[%s] user-summary login=True tasks=0 submitted=0 failed=0', label)
                 continue
+
+            executable_accounts.append((index, account, label, tasks))
+
+        balanced_plan = None
+        assignment_by_index: dict[int, str] = {}
+        if resolved_mode == 'balanced':
+            balanced_plan = build_balanced_plan(
+                total_accounts=len(executable_accounts),
+                seed=seed,
+                threshold=DEFAULT_BALANCED_THRESHOLD,
+            )
+            assignment_by_index = balanced_plan.assignment_by_index
+            summary['balanced_plan'] = {
+                'enabled': balanced_plan.enabled,
+                'seed_used': balanced_plan.seed_used,
+                'fallback_reason': balanced_plan.fallback_reason,
+                'mode_distribution': balanced_plan.mode_distribution,
+                'mode_distribution_population': 'accounts_with_tasks',
+                'mode_distribution_population_total': balanced_plan.total_accounts,
+                'mode_distribution_actual_accounts': mode_distribution_actual_accounts,
+                'mode_distribution_actual_accounts_population': 'accounts_with_tasks',
+                'mode_distribution_actual_accounts_total': actual_accounts_total,
+                'threshold': balanced_plan.threshold,
+                'total_accounts': balanced_plan.total_accounts,
+                'random_group_size': balanced_plan.random_group_size,
+                'balanced_group_size': balanced_plan.balanced_group_size,
+            }
+
+        for executable_index, (index, account, label, tasks) in enumerate(executable_accounts):
+            self.set_account(account)
             # 按账号口径统计：仅对有可提交任务的账号按分配 mode 计一次。
-            assigned_mode = assignment_by_index[index] if resolved_mode == 'balanced' else resolved_mode
+            assigned_mode = assignment_by_index[executable_index] if resolved_mode == 'balanced' else resolved_mode
             if assigned_mode in mode_distribution_actual_accounts:
                 mode_distribution_actual_accounts[assigned_mode] += 1
                 actual_accounts_total += 1
@@ -312,6 +329,35 @@ class ScreeningService:
                     _short_text(result['business_message']),
                 )
             log.info('[%s] user-summary login=True tasks=%s submitted=%s failed=%s', label, len(tasks), user_submitted, user_failed)
+
+        mode_distribution_actual_accounts_ratio = _distribution_ratio(
+            mode_distribution_actual_accounts,
+            actual_accounts_total,
+        )
+        risk_distribution_actual_accounts = {
+            'low': mode_distribution_actual_accounts['low'],
+            'middle': mode_distribution_actual_accounts['middle'],
+            'high': mode_distribution_actual_accounts['high'],
+        }
+        risk_distribution_actual_accounts_total = sum(risk_distribution_actual_accounts.values())
+        risk_distribution_actual_accounts_ratio = _distribution_ratio(
+            risk_distribution_actual_accounts,
+            risk_distribution_actual_accounts_total,
+        )
+
+        summary['mode_distribution_actual_accounts'] = dict(mode_distribution_actual_accounts)
+        summary['mode_distribution_actual_accounts_total'] = actual_accounts_total
+        summary['mode_distribution_actual_accounts_ratio'] = mode_distribution_actual_accounts_ratio
+        summary['risk_distribution_actual_accounts'] = risk_distribution_actual_accounts
+        summary['risk_distribution_actual_accounts_total'] = risk_distribution_actual_accounts_total
+        summary['risk_distribution_actual_accounts_ratio'] = risk_distribution_actual_accounts_ratio
+
+        if 'balanced_plan' in summary:
+            summary['balanced_plan']['mode_distribution_actual_accounts_ratio'] = mode_distribution_actual_accounts_ratio
+            summary['balanced_plan']['risk_distribution_actual_accounts'] = risk_distribution_actual_accounts
+            summary['balanced_plan']['risk_distribution_actual_accounts_total'] = risk_distribution_actual_accounts_total
+            summary['balanced_plan']['risk_distribution_actual_accounts_ratio'] = risk_distribution_actual_accounts_ratio
+
         log.info(
             'batch-summary accounts=%s submitted=%s login_failed=%s no_task=%s submit_failed=%s',
             summary['accounts'],
@@ -319,6 +365,13 @@ class ScreeningService:
             len(summary['login_failed']),
             len(summary['no_task_accounts']),
             len(summary['submit_failures']),
+        )
+        log.info(
+            'batch-risk-distribution low=%s middle=%s high=%s ratios=%s',
+            risk_distribution_actual_accounts['low'],
+            risk_distribution_actual_accounts['middle'],
+            risk_distribution_actual_accounts['high'],
+            risk_distribution_actual_accounts_ratio,
         )
         if not allow_empty_submit:
             assert summary['submitted'] > 0, f'批量执行没有成功提交: {summary}'
